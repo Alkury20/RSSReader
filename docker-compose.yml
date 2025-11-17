@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: rss-platform-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: rss_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rss-network
+
+  feed-service:
+    build:
+      context: ./backend/feed-service
+      dockerfile: Dockerfile
+    container_name: rss-feed-service
+    environment:
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: rss_platform
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      BASE_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - rss-network
+    restart: unless-stopped
+
+  admin-service:
+    build:
+      context: ./backend/admin-service
+      dockerfile: Dockerfile
+    container_name: rss-admin-service
+    environment:
+      PORT: 3002
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: rss_platform
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - rss-network
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: ./backend/auth-service
+      dockerfile: Dockerfile
+    container_name: rss-auth-service
+    environment:
+      PORT: 3003
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: rss_platform
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      JWT_EXPIRES_IN: 24h
+    ports:
+      - "3003:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - rss-network
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./backend/api-gateway
+      dockerfile: Dockerfile
+    container_name: rss-api-gateway
+    environment:
+      PORT: 3000
+      FEED_SERVICE_URL: http://feed-service:3001
+      ADMIN_SERVICE_URL: http://admin-service:3002
+      AUTH_SERVICE_URL: http://auth-service:3003
+    ports:
+      - "3000:3000"
+    depends_on:
+      - feed-service
+      - admin-service
+      - auth-service
+    networks:
+      - rss-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  rss-network:
+    driver: bridge
+
