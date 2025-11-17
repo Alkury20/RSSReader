@@ -1,0 +1,40 @@
+disabled_rules:
+  - trailing_whitespace
+  - line_length
+  - type_name
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+
+included:
+  - SimpleRSSReader
+
+excluded:
+  - Carthage
+  - Pods
+  - SimpleRSSReader.xcodeproj
+  - SimpleRSSReaderTests
+
+line_length:
+  warning: 120
+  error: 200
+
+file_length:
+  warning: 500
+  error: 1200
+
+type_body_length:
+  warning: 300
+  error: 500
+
+function_body_length:
+  warning: 60
+  error: 100
+
+cyclomatic_complexity:
+  warning: 10
+  error: 20
+
+reporter: "xcode"
+

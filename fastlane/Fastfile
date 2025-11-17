@@ -1,0 +1,67 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Run tests"
+  lane :test do
+    run_tests(
+      project: "SimpleRSSReader.xcodeproj",
+      scheme: "SimpleRSSReader",
+      devices: ["iPhone 14"],
+      code_coverage: true
+    )
+  end
+
+  desc "Build for development"
+  lane :build_dev do
+    gym(
+      project: "SimpleRSSReader.xcodeproj",
+      scheme: "SimpleRSSReader",
+      export_method: "development",
+      output_directory: "./build",
+      output_name: "SimpleRSSReader.ipa"
+    )
+  end
+
+  desc "Build for App Store"
+  lane :build_release do
+    gym(
+      project: "SimpleRSSReader.xcodeproj",
+      scheme: "SimpleRSSReader",
+      export_method: "app-store",
+      output_directory: "./build",
+      output_name: "SimpleRSSReader.ipa"
+    )
+  end
+
+  desc "Upload to TestFlight"
+  lane :beta do
+    build_release
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true
+    )
+  end
+
+  desc "Deploy to App Store"
+  lane :release do
+    build_release
+    upload_to_app_store(
+      submit_for_review: false,
+      automatic_release: false
+    )
+  end
+
+  desc "Take screenshots"
+  lane :screenshots do
+    snapshot
+  end
+
+  desc "Run all checks before commit"
+  lane :pre_commit do
+    test
+    swiftlint(
+      mode: :lint,
+      raise_if_swiftlint_error: true
+    )
+  end
+end
+

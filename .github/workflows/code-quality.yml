@@ -1,0 +1,73 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  eslint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [feed-service, admin-service, auth-service, api-gateway]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: backend/${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend/${{ matrix.service }}
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: backend/${{ matrix.service }}
+        run: npm run lint || echo "Linting failed but continuing..."
+
+  swiftlint:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        run: |
+          cd SimpleRSSReader
+          swiftlint lint --reporter github-actions-logging || true
+
+  docker-security:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [feed-service, admin-service, auth-service, api-gateway]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t rss-${{ matrix.service }}:test ./backend/${{ matrix.service }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'rss-${{ matrix.service }}:test'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+

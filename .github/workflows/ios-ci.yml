@@ -1,0 +1,77 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'SimpleRSSReader/**'
+      - 'SimpleRSSReaderTests/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'SimpleRSSReader/**'
+      - 'SimpleRSSReaderTests/**'
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Select Xcode version
+        run: sudo xcode-select -switch /Applications/Xcode_14.3.app
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v3
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Build project
+        run: |
+          xcodebuild clean build \
+            -project SimpleRSSReader.xcodeproj \
+            -scheme SimpleRSSReader \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 14,OS=latest' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run tests
+        run: |
+          xcodebuild test \
+            -project SimpleRSSReader.xcodeproj \
+            -scheme SimpleRSSReader \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 14,OS=latest' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Archive build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          xcodebuild archive \
+            -project SimpleRSSReader.xcodeproj \
+            -scheme SimpleRSSReader \
+            -sdk iphonesimulator \
+            -archivePath build/SimpleRSSReader.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload build artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v3
+        with:
+          name: SimpleRSSReader-${{ github.sha }}
+          path: build/SimpleRSSReader.xcarchive
+          retention-days: 30
+
