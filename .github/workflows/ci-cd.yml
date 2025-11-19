@@ -1,102 +1,102 @@
-name: CI/CD Pipeline
+name: Backend CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 env:
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+  DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    
     strategy:
       matrix:
         service: [feed-service, admin-service, auth-service, api-gateway]
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: backend/${{ matrix.service }}/package-lock.json
-    
-    - name: Install dependencies
-      working-directory: backend/${{ matrix.service }}
-      run: npm ci
-    
-    - name: Run linter
-      working-directory: backend/${{ matrix.service }}
-      run: |
-        npm install -g eslint
-        eslint src/ || true
-    
-    - name: Run tests
-      working-directory: backend/${{ matrix.service }}
-      run: npm test || true
-    
-    - name: Build Docker image
-      working-directory: backend/${{ matrix.service }}
-      run: |
-        docker build -t ${{ env.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:latest .
-        docker tag ${{ env.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:latest ${{ env.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:${{ github.sha }}
-    
-    - name: Login to Docker Hub
-      if: github.event_name == 'push'
-      uses: docker/login-action@v2
-      with:
-        username: ${{ env.DOCKERHUB_USERNAME }}
-        password: ${{ env.DOCKERHUB_TOKEN }}
-    
-    - name: Push Docker image
-      if: github.event_name == 'push'
-      run: |
-        docker push ${{ env.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:latest
-        docker push ${{ env.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:${{ github.sha }}
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: backend/${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend/${{ matrix.service }}
+        run: npm ci
+
+      - name: Run linter
+        working-directory: backend/${{ matrix.service }}
+        run: npm run lint || true
+
+      - name: Run tests
+        working-directory: backend/${{ matrix.service }}
+        run: npm test || true
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:${{ github.sha }} \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:latest \
+            ./backend/${{ matrix.service }}
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker images
+        if: github.event_name == 'push'
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:${{ github.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/rss-${{ matrix.service }}:latest
 
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-    
-    - name: Configure kubectl
-      run: |
-        mkdir -p $HOME/.kube
-        echo "${{ secrets.KUBECONFIG }}" > $HOME/.kube/config
-    
-    - name: Deploy to Kubernetes
-      run: |
-        # Update image tags in deployment files
-        sed -i "s|your-dockerhub-username|${{ secrets.DOCKERHUB_USERNAME }}|g" k8s/*.yaml
-        
-        # Apply configurations
-        kubectl apply -f k8s/configmap-postgres-init.yaml
-        kubectl apply -f k8s/secrets.yaml
-        kubectl apply -f k8s/postgres-deployment.yaml
-        kubectl apply -f k8s/feed-service-deployment.yaml
-        kubectl apply -f k8s/admin-service-deployment.yaml
-        kubectl apply -f k8s/auth-service-deployment.yaml
-        kubectl apply -f k8s/api-gateway-deployment.yaml
-        kubectl apply -f k8s/ingress.yaml
-        
-        # Wait for deployments
-        kubectl rollout status deployment/feed-service
-        kubectl rollout status deployment/admin-service
-        kubectl rollout status deployment/auth-service
-        kubectl rollout status deployment/api-gateway
+      - name: Checkout code
+        uses: actions/checkout@v3
 
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Update image tags in manifests
+        run: |
+          cd k8s
+          for service in feed-service admin-service auth-service api-gateway; do
+            sed -i "s|image: .*rss-${service}:.*|image: ${{ secrets.DOCKERHUB_USERNAME }}/rss-${service}:${{ github.sha }}|g" ${service}-deployment.yaml
+          done
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f k8s/secrets.yaml
+          kubectl apply -f k8s/configmap-postgres-init.yaml
+          kubectl apply -f k8s/postgres-deployment.yaml
+          kubectl apply -f k8s/feed-service-deployment.yaml
+          kubectl apply -f k8s/admin-service-deployment.yaml
+          kubectl apply -f k8s/auth-service-deployment.yaml
+          kubectl apply -f k8s/api-gateway-deployment.yaml
+          kubectl apply -f k8s/ingress.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/feed-service -n default --timeout=300s
+          kubectl rollout status deployment/admin-service -n default --timeout=300s
+          kubectl rollout status deployment/auth-service -n default --timeout=300s
+          kubectl rollout status deployment/api-gateway -n default --timeout=300s
